@@ -1,0 +1,1951 @@
+<!DOCTYPE html>
+<html lang="ru" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Карта заброшек — Telegram Mini App</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <!-- Telegram Mini Apps SDK: gives us tg.ready/expand, theme, BackButton, HapticFeedback, initDataUnsafe.user, safe-area CSS vars, etc. -->
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <style>
+    :root {
+      --bg-obsidian: #07070A;
+      --glass-surface: rgba(24, 24, 30, 0.72);
+      --glass-elevated: rgba(34, 34, 42, 0.82);
+      --hairline: rgba(255, 255, 255, 0.11);
+      --hairline-strong: rgba(255, 255, 255, 0.22);
+      --spring-easing: cubic-bezier(0.22, 1, 0.36, 1);
+      --bounce-easing: cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+
+    * {
+      box-sizing: border-box;
+      -webkit-tap-highlight-color: transparent;
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Inter", sans-serif;
+    }
+
+    body {
+      margin: 0;
+      background: radial-gradient(circle at 20% 10%, #151828 0%, #050507 55%, #000000 100%);
+      color: #F5F5F7;
+      min-height: 100dvh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+    }
+
+    /* Desktop Phone Frame & Mobile Fullscreen */
+    .app-shell {
+      position: relative;
+      width: 100%;
+      height: 100dvh;
+      background: var(--bg-obsidian);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }
+
+    @media (min-width: 520px) {
+      .app-shell {
+        width: 412px;
+        height: 852px;
+        max-height: 94dvh;
+        border-radius: 48px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        box-shadow:
+          0 40px 100px rgba(0, 0, 0, 0.85),
+          0 0 0 8px rgba(18, 18, 22, 0.9),
+          inset 0 1px 1px rgba(255, 255, 255, 0.25);
+      }
+    }
+
+    /* Apple Frosted Glass */
+    .ios-glass {
+      background: var(--glass-surface);
+      backdrop-filter: blur(26px) saturate(180%);
+      -webkit-backdrop-filter: blur(26px) saturate(180%);
+      border: 1px solid var(--hairline);
+    }
+
+    .ios-glass-elevated {
+      background: var(--glass-elevated);
+      backdrop-filter: blur(32px) saturate(190%);
+      -webkit-backdrop-filter: blur(32px) saturate(190%);
+      border: 1px solid var(--hairline-strong);
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.55), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+    }
+
+    .vip-glass {
+      background: linear-gradient(145deg, rgba(42, 33, 18, 0.82) 0%, rgba(18, 17, 22, 0.9) 100%);
+      backdrop-filter: blur(28px) saturate(180%);
+      -webkit-backdrop-filter: blur(28px) saturate(180%);
+      border: 1px solid rgba(251, 191, 36, 0.32);
+      box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(253, 224, 71, 0.22);
+    }
+
+    /* Micro-interactions */
+    .spring-press {
+      transition: transform 0.32s var(--spring-easing), opacity 0.25s ease, background-color 0.25s ease;
+    }
+    .spring-press:active {
+      transform: scale(0.95);
+    }
+
+    /* Hide Scrollbars */
+    .no-scrollbar::-webkit-scrollbar {
+      display: none;
+    }
+    .no-scrollbar {
+      -ms-overflow-style: none;
+      scrollbar-width: none;
+    }
+
+    /* Screen Transitions */
+    .tab-screen {
+      position: absolute;
+      inset: 0;
+      padding-bottom: 88px;
+      opacity: 0;
+      pointer-events: none;
+      transform: scale(0.985) translateY(6px);
+      transition: opacity 0.36s var(--spring-easing), transform 0.42s var(--spring-easing);
+    }
+    .tab-screen.active {
+      opacity: 1;
+      pointer-events: auto;
+      transform: scale(1) translateY(0);
+    }
+
+    /* Staggered Card Reveal */
+    @keyframes cardEnter {
+      from {
+        opacity: 0;
+        transform: translateY(18px) scale(0.97);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    .stagger-card {
+      animation: cardEnter 0.52s var(--spring-easing) both;
+    }
+
+    /* Map Pulse & Glow */
+    @keyframes pinPulse {
+      0% { transform: scale(1); opacity: 0.75; }
+      70% { transform: scale(2.15); opacity: 0; }
+      100% { transform: scale(2.15); opacity: 0; }
+    }
+    .pin-pulse {
+      animation: pinPulse 2.4s infinite cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    @keyframes vipDrop {
+      0% { transform: translate(-50%, -140%) scale(0.3); opacity: 0; }
+      65% { transform: translate(-50%, -42%) scale(1.18); opacity: 1; }
+      100% { transform: translate(-50%, -50%) scale(1); opacity: 1; }
+    }
+    .vip-pin-appear {
+      animation: vipDrop 0.75s var(--bounce-easing) both;
+    }
+
+    /* Heart Pop */
+    @keyframes heartPop {
+      0% { transform: scale(1); }
+      40% { transform: scale(1.42); }
+      75% { transform: scale(0.9); }
+      100% { transform: scale(1); }
+    }
+    .heart-pop {
+      animation: heartPop 0.42s var(--bounce-easing);
+    }
+
+    /* Watermark & Anti-Copy for VIP */
+    .vip-protected {
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-touch-callout: none;
+    }
+
+    .watermark-grid {
+      background-image: repeating-linear-gradient(
+        -28deg,
+        transparent,
+        transparent 44px,
+        rgba(255, 255, 255, 0.03) 44px,
+        rgba(255, 255, 255, 0.03) 45px
+      );
+    }
+
+    /* Shimmer effect */
+    @keyframes goldShimmer {
+      0% { transform: translateX(-120%) skewX(-20deg); }
+      100% { transform: translateX(220%) skewX(-20deg); }
+    }
+    .shimmer-bar {
+      animation: goldShimmer 3.2s infinite ease-in-out;
+    }
+
+    /* Leaflet Dark 2GIS Customization */
+    .leaflet-container {
+      background: #090A0F !important;
+      font-family: inherit !important;
+    }
+    .leaflet-tile-pane {
+      filter: invert(100%) hue-rotate(180deg) brightness(92%) contrast(92%) saturate(75%);
+    }
+    .leaflet-control-attribution,
+    .leaflet-control-zoom {
+      display: none !important;
+    }
+    .custom-leaflet-marker {
+      background: transparent !important;
+      border: none !important;
+    }
+
+    /* Draggable Apple Bottom Sheet */
+    .bottom-sheet-panel {
+      will-change: height, transform;
+      touch-action: none;
+    }
+    .bottom-sheet-panel.snapping {
+      transition: height 0.52s cubic-bezier(0.22, 1, 0.36, 1);
+    }
+
+    /* Staggered Bottom Sheet Items Animation */
+    @keyframes sheetItemReveal {
+      0% {
+        opacity: 0;
+        transform: translateY(18px) scale(0.97);
+      }
+      100% {
+        opacity: 1;
+        transform: translateY(0) scale(1);
+      }
+    }
+    .sheet-stagger-item {
+      opacity: 0;
+      animation: sheetItemReveal 0.48s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+  </style>
+</head>
+<body>
+
+<div class="app-shell" id="appShell">
+  <!-- Telegram Mini App Top Header -->
+  <header style="padding-top: calc(0.75rem + var(--tg-content-safe-area-inset-top, 0px) + var(--tg-safe-area-inset-top, 0px));" class="relative z-30 pt-3 pb-2.5 px-4 flex items-center justify-between bg-black/55 backdrop-blur-xl border-b border-white/[0.08]">
+    <div class="flex items-center gap-2.5">
+      <div class="w-8 h-8 rounded-full bg-gradient-to-tr from-emerald-500 via-teal-400 to-cyan-300 p-[1.5px] shadow-lg shadow-emerald-500/20">
+        <div class="w-full h-full rounded-full bg-[#0D0E12] flex items-center justify-center text-xs font-bold tracking-tight text-white">
+          2G
+        </div>
+      </div>
+      <div>
+        <div class="flex items-center gap-1.5">
+          <h1 class="text-[15px] font-semibold tracking-tight text-white leading-none">Карта заброшек</h1>
+          <span class="px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider rounded-md bg-white/10 text-white/75">Mini App</span>
+        </div>
+        <p class="text-[11px] text-white/45 mt-0.5 leading-none">@ns_popstar • Москва и область</p>
+      </div>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <!-- Stars Balance Pill -->
+      <button onclick="showToast('Баланс Telegram Stars: 240 ⭐')" class="spring-press flex items-center gap-1 px-2.5 py-1.5 rounded-full ios-glass text-xs font-semibold text-amber-300">
+        <span>⭐</span>
+        <span id="starsBalance">240</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN VIEWPORT -->
+  <main class="relative flex-1 overflow-hidden">
+
+    <!-- ==================== TAB 1: КАРТА (2GIS DARK STYLE) ==================== -->
+    <section id="screen-map" class="tab-screen active flex flex-col">
+      <!-- Floating Search & Filter Controls -->
+      <div class="relative z-20 px-3.5 pt-3 space-y-2.5 pointer-events-none">
+        <div class="pointer-events-auto flex items-center gap-2">
+          <div class="flex-1 ios-glass rounded-2xl px-3.5 py-2.5 flex items-center gap-2.5 shadow-xl">
+            <svg class="w-4 h-4 text-white/45 shrink-0" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+              <circle cx="11" cy="11" r="7"></circle>
+              <path d="M20 20l-3.5-3.5" stroke-linecap="round"></path>
+            </svg>
+            <input
+              id="mapSearchInput"
+              type="text"
+              placeholder="Поиск объектов, районов..."
+              oninput="handleSearch(this.value)"
+              class="w-full bg-transparent text-[13px] text-white placeholder-white/40 focus:outline-none"
+            />
+            <button id="clearSearchBtn" onclick="clearSearch()" class="hidden text-white/40 hover:text-white text-xs px-1">✕</button>
+          </div>
+          <button onclick="recenterMap()" title="Моё местоположение" class="spring-press w-10 h-10 rounded-2xl ios-glass flex items-center justify-center text-sky-400 shadow-xl">
+            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M12 2L4.5 20.29l.71.71L12 18l6.79 3 .71-.71z"/>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Category Chips -->
+        <div id="mapFilterChips" class="pointer-events-auto flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
+          <!-- Rendered by JS -->
+        </div>
+      </div>
+
+      <!-- Real World Interactive Leaflet Map -->
+      <div id="worldMap" class="absolute inset-0 z-0"></div>
+
+      <!-- Hidden VIP Notice Pill on Map -->
+      <div id="vipFloatingPill" class="relative z-10 mt-auto mb-2 px-4 flex justify-center pointer-events-none transition-opacity duration-300">
+        <button onclick="switchTab('vip')" class="pointer-events-auto spring-press px-3 py-1.5 rounded-full ios-glass flex items-center gap-1.5 text-[11px] text-amber-200/90 shadow-lg">
+          <span class="w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse"></span>
+          <span id="hiddenVipCounter">VIP-локации</span>
+          <span class="text-amber-400">→</span>
+        </button>
+      </div>
+
+      <!-- 2GIS / Apple Maps Swipeable Bottom Sheet (3 Snap States: collapsed / half / full) -->
+      <div id="mapBottomSheet" style="height: 215px;" class="bottom-sheet-panel snapping relative z-20 mx-2 mb-1 rounded-t-[28px] rounded-b-[22px] ios-glass-elevated flex flex-col overflow-hidden">
+        <!-- Swipe Drag Handle Zone -->
+        <div id="sheetDragZone" class="pt-2.5 pb-2.5 px-4 cursor-grab active:cursor-grabbing select-none shrink-0">
+          <div class="w-10 h-1.5 rounded-full bg-white/30 mx-auto mb-2"></div>
+          <div class="w-full flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span id="sheetTitle" class="text-[13px] font-semibold text-white">Выбранный объект • 5 рядом</span>
+            </div>
+            <button type="button" onclick="cycleSheetSnap(event)" id="sheetExpandLabel" class="text-[11px] font-semibold text-sky-400 px-2 py-0.5 rounded-lg bg-sky-400/10">
+              Свайп вверх ↑
+            </button>
+          </div>
+        </div>
+
+        <!-- Sheet Body: Selected Pin Preview OR Full Scrollable Nearby List -->
+        <div id="sheetContent" class="flex-1 px-3.5 pb-4 overflow-y-auto no-scrollbar">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+    </section>
+
+    <!-- ==================== TAB 2: СПИСОК ==================== -->
+    <section id="screen-list" class="tab-screen flex flex-col px-4 pt-3">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <h2 class="text-xl font-bold tracking-tight text-white">Все объекты</h2>
+          <p class="text-xs text-white/45">Проверенные точки сообщества</p>
+        </div>
+        <div class="flex items-center gap-1 bg-white/[0.06] p-1 rounded-xl border border-white/[0.08]">
+          <button onclick="setSort('distance')" id="sort-distance" class="sort-btn px-2.5 py-1 rounded-lg text-[11px] font-medium bg-white/15 text-white transition">Рядом</button>
+          <button onclick="setSort('fresh')" id="sort-fresh" class="sort-btn px-2.5 py-1 rounded-lg text-[11px] font-medium text-white/50 hover:text-white transition">Незаезженные</button>
+          <button onclick="setSort('popular')" id="sort-popular" class="sort-btn px-2.5 py-1 rounded-lg text-[11px] font-medium text-white/50 hover:text-white transition">Топ</button>
+        </div>
+      </div>
+
+      <div id="listFeedContainer" class="flex-1 overflow-y-auto no-scrollbar space-y-3 pb-6">
+        <!-- Rendered by JS -->
+      </div>
+    </section>
+
+    <!-- ==================== TAB 3: VIP (TELEGRAM STARS) ==================== -->
+    <section id="screen-vip" class="tab-screen flex flex-col px-4 pt-3">
+      <div class="mb-3.5">
+        <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-400/15 border border-amber-400/30 text-amber-300 text-[11px] font-semibold mb-2">
+          <span>👑</span>
+          <span>Закрытый каталог</span>
+        </div>
+        <h2 class="text-xl font-bold tracking-tight text-white">VIP-локации</h2>
+        <p class="text-xs text-white/50 leading-relaxed mt-0.5">
+          Свежие и нетронутые объекты. <span class="text-amber-300/90">Не отображаются на общей карте</span> до разблокировки, чтобы избежать массового наплыва и заваривания входов.
+        </p>
+      </div>
+
+      <div id="vipFeedContainer" class="flex-1 overflow-y-auto no-scrollbar space-y-3.5 pb-6">
+        <!-- Rendered by JS -->
+      </div>
+    </section>
+
+    <!-- ==================== TAB 4: ПРЕДЛОЖИТЬ ==================== -->
+    <section id="screen-submit" class="tab-screen flex flex-col px-4 pt-3">
+      <div class="flex items-center justify-between mb-3">
+        <div>
+          <h2 class="text-xl font-bold tracking-tight text-white">Предложить точку</h2>
+          <p class="text-xs text-white/45">Публикация после проверки модератором</p>
+        </div>
+        <span class="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[11px] font-medium">
+          +Карма
+        </span>
+      </div>
+
+      <div id="submitFormWrapper" class="flex-1 overflow-y-auto no-scrollbar space-y-3.5 pb-8">
+        <!-- Real Interactive World Map Pin Picker -->
+        <div class="ios-glass rounded-2xl p-3">
+          <div class="flex items-center justify-between mb-2">
+            <span class="text-xs font-semibold text-white/85">1. Укажите точку на карте мира</span>
+            <span id="pickedCoordsLabel" class="text-[11px] font-mono text-sky-400">55.7842, 37.6710</span>
+          </div>
+          <div class="relative h-40 rounded-xl overflow-hidden bg-[#0D1018] border border-white/10">
+            <div id="pickerLeafletMap" class="w-full h-full z-0"></div>
+            <div class="absolute bottom-2 left-2.5 z-10 pointer-events-none px-2 py-0.5 rounded-md bg-black/70 backdrop-blur text-[10px] text-white/75 border border-white/10">
+              Двигайте карту или нажмите, чтобы поставить пин
+            </div>
+          </div>
+
+          <!-- Manual coordinate entry — keeps in sync with the map pin above -->
+          <div class="flex items-center gap-2 mt-2.5">
+            <input
+              id="manualCoordsInput"
+              type="text"
+              inputmode="decimal"
+              placeholder="Или введите вручную: 55.7842, 37.6710"
+              onkeydown="if(event.key==='Enter') applyManualCoords()"
+              class="flex-1 rounded-xl bg-white/[0.07] border border-white/12 px-3 py-2.5 text-xs font-mono text-white placeholder-white/35 focus:outline-none focus:border-sky-400/60"
+            />
+            <button onclick="applyManualCoords()" class="spring-press shrink-0 px-3.5 py-2.5 rounded-xl bg-white text-black font-bold text-xs">
+              Поставить
+            </button>
+          </div>
+        </div>
+
+        <!-- Input Fields -->
+        <div class="ios-glass rounded-2xl p-3.5 space-y-3">
+          <div>
+            <label class="block text-[11px] font-medium text-white/60 mb-1">Название объекта</label>
+            <input id="subTitle" type="text" placeholder="Например: Заброшенный цех Кристалл" class="w-full rounded-xl bg-white/[0.06] border border-white/10 px-3 py-2.5 text-[13px] text-white placeholder-white/30 focus:outline-none focus:border-sky-400/60" />
+          </div>
+
+          <div class="grid grid-cols-2 gap-2.5">
+            <div>
+              <label class="block text-[11px] font-medium text-white/60 mb-1">Категория</label>
+              <select id="subCategory" class="w-full rounded-xl bg-[#181920] border border-white/10 px-3 py-2.5 text-[13px] text-white focus:outline-none">
+                <option value="Промзона">🏭 Промзона</option>
+                <option value="Бункер">🛡️ Бункер / Подземка</option>
+                <option value="Санаторий">🏥 Санаторий / Усадьба</option>
+                <option value="Недострой">🏗️ Недострой</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-[11px] font-medium text-white/60 mb-1">Доступность</label>
+              <select id="subStatus" class="w-full rounded-xl bg-[#181920] border border-white/10 px-3 py-2.5 text-[13px] text-white focus:outline-none">
+                <option value="open">🟢 Свободный вход</option>
+                <option value="guard">🟡 Есть охрана</option>
+                <option value="sealed">⚪ Заварено</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label class="block text-[11px] font-medium text-white/60 mb-1">Описание и особенности захода</label>
+            <textarea id="subDesc" rows="3" placeholder="Что внутри, откуда лучше зайти, есть ли собаки или датчики..." class="w-full rounded-xl bg-white/[0.06] border border-white/10 px-3 py-2 text-[13px] text-white placeholder-white/30 focus:outline-none focus:border-sky-400/60 resize-none"></textarea>
+          </div>
+
+          <!-- VIP Suggestion Switch -->
+          <div class="flex items-center justify-between pt-1 border-t border-white/[0.08]">
+            <div>
+              <div class="text-xs font-semibold text-amber-300 flex items-center gap-1">
+                <span>👑</span> Предложить как VIP (50 ⭐)
+              </div>
+              <div class="text-[11px] text-white/45">Скрыть с общей карты до покупки</div>
+            </div>
+            <button type="button" id="subVipToggle" onclick="toggleSubmitVip()" class="w-12 h-7 rounded-full bg-white/15 p-1 transition-colors duration-300 relative">
+              <span id="subVipKnob" class="block w-5 h-5 rounded-full bg-white shadow transition-transform duration-300"></span>
+            </button>
+          </div>
+        </div>
+
+        <button onclick="submitNewSpot()" class="spring-press w-full py-3.5 rounded-2xl bg-gradient-to-r from-sky-500 to-blue-600 text-white font-semibold text-[14px] shadow-lg shadow-sky-500/25">
+          Отправить на модерацию
+        </button>
+
+        <!-- Moderation Preview Card (appears after submission) -->
+        <div id="moderationStatusCard" class="hidden ios-glass-elevated rounded-2xl p-4 border-emerald-400/30 space-y-3">
+          <div class="flex items-start justify-between gap-2">
+            <div>
+              <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-400/15 text-amber-300 text-[10px] font-bold uppercase tracking-wider">
+                ⏳ На модерации у админа
+              </span>
+              <h4 id="modPreviewTitle" class="text-sm font-bold text-white mt-1.5">Новый объект</h4>
+              <p id="modPreviewMeta" class="text-xs text-white/50 mt-0.5">Промзона • 55.7842, 37.6710</p>
+            </div>
+          </div>
+          <p class="text-[11px] text-white/60 leading-relaxed">
+            Заявка отправлена в закрытого админ-бота. Для теста прототипа вы можете одобрить её прямо сейчас:
+          </p>
+          <button onclick="approveSubmittedSpot()" class="spring-press w-full py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-300 text-xs font-semibold">
+            ✓ Симулировать одобрение админом
+          </button>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ==================== APPLE TRANSLUCENT BOTTOM TAB BAR ==================== -->
+  <nav style="padding-bottom: calc(0.75rem + var(--tg-content-safe-area-inset-bottom, 0px) + var(--tg-safe-area-inset-bottom, 0px));" class="absolute bottom-0 inset-x-0 z-30 px-3 pt-2 bg-black/70 backdrop-blur-2xl border-t border-white/[0.09]">
+    <div class="relative grid grid-cols-4 gap-1 bg-white/[0.04] p-1 rounded-2xl border border-white/[0.06]">
+      <button onclick="switchTab('map')" id="tab-btn-map" class="tab-btn spring-press relative z-10 py-2 rounded-xl flex flex-col items-center justify-center gap-0.5 text-white bg-white/[0.12] shadow-sm transition-all">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 10l4.553 2.276A1 1 0 0021 18.382V7.618a1 1 0 00-.553-.894L15 4m0 13V4m0 0L9 7"/>
+        </svg>
+        <span class="text-[10px] font-semibold">Карта</span>
+      </button>
+
+      <button onclick="switchTab('list')" id="tab-btn-list" class="tab-btn spring-press relative z-10 py-2 rounded-xl flex flex-col items-center justify-center gap-0.5 text-white/50 hover:text-white transition-all">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 12h16M4 18h10"/>
+        </svg>
+        <span class="text-[10px] font-semibold">Список</span>
+      </button>
+
+      <button onclick="switchTab('vip')" id="tab-btn-vip" class="tab-btn spring-press relative z-10 py-2 rounded-xl flex flex-col items-center justify-center gap-0.5 text-white/50 hover:text-amber-300 transition-all">
+        <div class="relative">
+          <svg class="w-5 h-5 text-amber-400" fill="currentColor" viewBox="0 0 24 24">
+            <path d="M5 16L3 5l5.5 5L12 4l3.5 6L21 5l-2 11H5zm14 3c0 .6-.4 1-1 1H6c-.6 0-1-.4-1-1v-1h14v1z"/>
+          </svg>
+          <span id="vipBadgeDot" class="hidden absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-amber-400"></span>
+        </div>
+        <span class="text-[10px] font-semibold text-amber-300/90">VIP</span>
+      </button>
+
+      <button onclick="switchTab('submit')" id="tab-btn-submit" class="tab-btn spring-press relative z-10 py-2 rounded-xl flex flex-col items-center justify-center gap-0.5 text-white/50 hover:text-white transition-all">
+        <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="1.9" viewBox="0 0 24 24">
+          <path stroke-linecap="round" stroke-linejoin="round" d="M12 4v16m8-8H4"/>
+        </svg>
+        <span class="text-[10px] font-semibold">Предложить</span>
+      </button>
+    </div>
+  </nav>
+
+  <!-- ==================== FULL OBJECT DETAIL SHEET MODAL ==================== -->
+  <div id="detailModal" class="fixed inset-0 z-50 pointer-events-none flex items-end justify-center sm:absolute">
+    <!-- Backdrop -->
+    <div id="detailBackdrop" onclick="closeDetailModal()" class="absolute inset-0 bg-black/75 backdrop-blur-md opacity-0 transition-opacity duration-300"></div>
+
+    <!-- Sheet Container -->
+    <div id="detailSheet" class="relative w-full h-[90%] rounded-t-[32px] bg-[#111217] border-t border-white/15 shadow-2xl transform translate-y-full transition-transform duration-500 ease-[cubic-bezier(0.22,1,0.36,1)] flex flex-col overflow-hidden">
+      <!-- Top Puller & Close -->
+      <div class="absolute top-3 inset-x-0 z-30 px-4 flex items-center justify-between pointer-events-none">
+        <div class="w-9"></div>
+        <div class="w-10 h-1 rounded-full bg-white/35 backdrop-blur"></div>
+        <button onclick="closeDetailModal()" class="pointer-events-auto spring-press w-8 h-8 rounded-full bg-black/55 backdrop-blur-md border border-white/15 flex items-center justify-center text-white/80 text-sm">
+          ✕
+        </button>
+      </div>
+
+      <!-- Scrollable Detail Body -->
+      <div id="detailBody" class="flex-1 overflow-y-auto no-scrollbar pb-8">
+        <!-- Injected dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== TELEGRAM STARS VIP PURCHASE MODAL ==================== -->
+  <div id="vipPayModal" class="fixed inset-0 z-50 pointer-events-none flex items-center justify-center p-4 sm:absolute">
+    <div id="vipPayBackdrop" onclick="closeVipPayModal()" class="absolute inset-0 bg-black/80 backdrop-blur-lg opacity-0 transition-opacity duration-300"></div>
+
+    <div id="vipPayCard" class="relative w-full max-w-[350px] rounded-[30px] vip-glass p-5 transform scale-90 opacity-0 transition-all duration-350 ease-[cubic-bezier(0.34,1.56,0.64,1)]">
+      <div class="flex flex-col items-center text-center">
+        <div class="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-300 via-amber-500 to-orange-600 flex items-center justify-center text-2xl shadow-lg shadow-amber-500/30 mb-3">
+          ⭐
+        </div>
+        <span class="text-[11px] font-bold uppercase tracking-widest text-amber-300/80">Telegram Stars</span>
+        <h3 id="vipPayTitle" class="text-lg font-bold text-white mt-1">Разблокировать VIP-точку</h3>
+        <p id="vipPaySubtitle" class="text-xs text-white/60 mt-1.5 leading-relaxed">
+          После оплаты локация появится лично на вашей карте, откроются точные координаты и подробный гайд по заходу.
+        </p>
+
+        <!-- Security Info Box -->
+        <div class="w-full mt-3.5 p-3 rounded-2xl bg-black/40 border border-white/10 text-left space-y-1.5">
+          <div class="flex items-center gap-2 text-[11px] text-white/80">
+            <span class="text-emerald-400">✓</span> Пин появится только на вашей карте
+          </div>
+          <div class="flex items-center gap-2 text-[11px] text-white/80">
+            <span class="text-emerald-400">✓</span> Точные координаты и закрытые фото
+          </div>
+          <div class="flex items-center gap-2 text-[11px] text-amber-300/90">
+            <span>🛡️</span> Водяной знак <span class="font-mono">@ns_popstar</span> и запрет пересылки
+          </div>
+        </div>
+
+        <div class="w-full grid grid-cols-2 gap-2.5 mt-4">
+          <button onclick="closeVipPayModal()" class="spring-press py-3 rounded-2xl bg-white/10 text-white/80 text-xs font-semibold">
+            Отмена
+          </button>
+          <button id="confirmStarPayBtn" onclick="confirmVipPurchase()" class="spring-press relative overflow-hidden py-3 rounded-2xl bg-gradient-to-r from-amber-400 to-amber-500 text-black font-bold text-xs shadow-lg shadow-amber-500/30">
+            <span class="relative z-10">Оплатить 50 ⭐</span>
+            <div class="absolute inset-0 bg-white/30 w-1/2 shimmer-bar"></div>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== APPLE DYNAMIC ISLAND TOAST ==================== -->
+  <div id="toastContainer" class="pointer-events-none fixed top-14 inset-x-0 z-50 flex justify-center px-4 sm:absolute">
+    <div id="toastPill" class="px-4 py-2 rounded-full bg-[#1C1D24]/95 backdrop-blur-xl border border-white/15 shadow-2xl text-xs font-medium text-white flex items-center gap-2 transform -translate-y-8 opacity-0 transition-all duration-350 ease-[cubic-bezier(0.22,1,0.36,1)]">
+      <span id="toastIcon">✨</span>
+      <span id="toastText">Уведомление</span>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ==================== TELEGRAM WEB APP SDK ====================
+  const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+  const tgUser = tg && tg.initDataUnsafe && tg.initDataUnsafe.user ? tg.initDataUnsafe.user : null;
+
+  function haptic(style) {
+    if (!tg || !tg.HapticFeedback) return;
+    if (style === 'success' || style === 'error' || style === 'warning') {
+      tg.HapticFeedback.notificationOccurred(style);
+    } else {
+      tg.HapticFeedback.impactOccurred(style || 'light');
+    }
+  }
+
+  function initTelegram() {
+    if (!tg) return; // Running outside Telegram (e.g. a regular browser) — app still works, just without native chrome.
+    tg.ready();
+    tg.expand();
+    if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
+    if (tg.setHeaderColor) tg.setHeaderColor('#07070A');
+    if (tg.setBackgroundColor) tg.setBackgroundColor('#07070A');
+    if (tg.setBottomBarColor) tg.setBottomBarColor('#07070A');
+    if (tg.enableClosingConfirmation) tg.enableClosingConfirmation();
+
+    // Native back button closes the open detail sheet instead of leaving the app.
+    if (tg.BackButton) {
+      tg.BackButton.onClick(() => closeDetailModal());
+    }
+
+    // Light haptic tap on every pressable element, the way native Telegram UI feels.
+    document.addEventListener('pointerdown', (e) => {
+      if (e.target.closest('.spring-press')) haptic('light');
+    });
+  }
+
+  function updateBackButton(show) {
+    if (!tg || !tg.BackButton) return;
+    if (show) tg.BackButton.show(); else tg.BackButton.hide();
+  }
+
+  // ==================== STATE & USER PROFILE ====================
+  // Real Telegram user when opened inside Telegram; sensible guest defaults otherwise (e.g. testing in a browser).
+  const USER_PROFILE = {
+    username: tgUser && tgUser.username ? '@' + tgUser.username : (tgUser && tgUser.first_name ? tgUser.first_name : '@guest'),
+    id: tgUser ? String(tgUser.id) : 'guest',
+    // NOTE: Telegram Stars balance isn't exposed to Mini App front-ends.
+    // This is a demo balance only — wire a real bot backend to track actual Stars.
+    stars: 240
+  };
+
+  const CATEGORIES = ['Все', 'Промзона', 'Бункер', 'Санаторий', 'Недострой'];
+
+  let state = {
+    activeTab: 'map',
+    selectedCategory: 'Все',
+    searchQuery: '',
+    selectedPinId: null,
+    sheetSnap: 'half', // 'collapsed' | 'half' | 'full'
+    sortBy: 'distance',
+    viewedIds: new Set(),
+    likedIds: new Set(),
+    unlockedVipIds: new Set(),
+    pendingVipPurchaseId: null,
+    submitIsVip: false,
+    pendingModerationSpot: null
+  };
+
+  let worldMap = null;
+  let markersLayerGroup = null;
+  let userLocationMarker = null;
+  let pickerMap = null;
+  let pickerMarker = null;
+
+  const USER_COORDS = [55.7785, 37.6540];
+
+  // All demo locations removed — this now starts as an empty, real catalogue.
+  // New spots only appear here after a user submits one via the "Предложить" tab
+  // and it is approved (see submitNewSpot / approveSubmittedSpot below).
+  const places = [];
+
+  // ==================== ARCHITECTURAL SVG ILLUSTRATIONS ====================
+  function renderSpotArtwork(type, accent = '#34D399', isLockedVip = false) {
+    const blurClass = isLockedVip ? 'blur-[2px] scale-105 opacity-75' : '';
+    if (type === 'bunker') {
+      return `
+        <svg class="w-full h-full ${blurClass} transition-all duration-500" viewBox="0 0 400 200" fill="none">
+          <rect width="400" height="200" fill="url(#bunkerBg)"/>
+          <defs>
+            <radialGradient id="bunkerBg" cx="50%" cy="45%" r="70%">
+              <stop offset="0%" stop-color="${accent}" stop-opacity="0.24"/>
+              <stop offset="100%" stop-color="#090A0F" stop-opacity="1"/>
+            </radialGradient>
+          </defs>
+          <!-- Concrete Tunnel Arches -->
+          <path d="M50 200 A150 150 0 0 1 350 200" stroke="rgba(255,255,255,0.12)" stroke-width="16"/>
+          <path d="M95 200 A105 105 0 0 1 305 200" stroke="rgba(255,255,255,0.08)" stroke-width="10"/>
+          <!-- Hermetic Blast Door -->
+          <circle cx="200" cy="128" r="54" fill="#141720" stroke="${accent}" stroke-width="2.5" stroke-opacity="0.7"/>
+          <circle cx="200" cy="128" r="42" stroke="rgba(255,255,255,0.14)" stroke-width="1.5" stroke-dasharray="6 4"/>
+          <!-- Locking Wheel -->
+          <circle cx="200" cy="128" r="14" stroke="${accent}" stroke-width="3"/>
+          <path d="M200 108V148M180 128H220M186 114L214 142M214 114L186 142" stroke="${accent}" stroke-width="2"/>
+          <!-- Overhead Lamp -->
+          <ellipse cx="200" cy="24" rx="26" ry="6" fill="${accent}" fill-opacity="0.5"/>
+          <polygon points="176,26 224,26 275,180 125,180" fill="${accent}" fill-opacity="0.06"/>
+        </svg>`;
+    }
+    if (type === 'hospital' || type === 'manor') {
+      return `
+        <svg class="w-full h-full ${blurClass} transition-all duration-500" viewBox="0 0 400 200" fill="none">
+          <rect width="400" height="200" fill="#0B0D13"/>
+          <circle cx="310" cy="48" r="34" fill="${accent}" fill-opacity="0.14"/>
+          <!-- Brutalist / Manor Facade -->
+          <rect x="75" y="46" width="250" height="154" fill="#131620" stroke="rgba(255,255,255,0.12)"/>
+          <polygon points="65,46 200,16 335,46" fill="#181C28" stroke="rgba(255,255,255,0.14)"/>
+          <!-- Columns / Brutalist Ribs -->
+          <g fill="#1D2230">
+            <rect x="95" y="56" width="12" height="144"/>
+            <rect x="145" y="56" width="12" height="144"/>
+            <rect x="243" y="56" width="12" height="144"/>
+            <rect x="293" y="56" width="12" height="144"/>
+          </g>
+          <!-- Dark Broken Windows -->
+          <g fill="#08090D" stroke="rgba(255,255,255,0.1)">
+            <rect x="115" y="72" width="22" height="32" rx="2"/>
+            <rect x="172" y="72" width="56" height="36" rx="2"/>
+            <rect x="263" y="72" width="22" height="32" rx="2"/>
+            <rect x="115" y="122" width="22" height="32" rx="2"/>
+            <rect x="263" y="122" width="22" height="32" rx="2"/>
+          </g>
+          <!-- Entrance -->
+          <rect x="178" y="135" width="44" height="65" fill="#07080B" stroke="${accent}" stroke-opacity="0.45"/>
+        </svg>`;
+    }
+    // Default: Industrial Factory
+    return `
+      <svg class="w-full h-full ${blurClass} transition-all duration-500" viewBox="0 0 400 200" fill="none">
+        <rect width="400" height="200" fill="#0A0C12"/>
+        <circle cx="95" cy="45" r="55" fill="${accent}" fill-opacity="0.12"/>
+        <!-- Smokestacks -->
+        <polygon points="88,18 102,18 108,120 82,120" fill="#171B26" stroke="rgba(255,255,255,0.1)"/>
+        <polygon points="126,34 138,34 143,120 121,120" fill="#141822" stroke="rgba(255,255,255,0.08)"/>
+        <!-- Sawtooth Factory Roof -->
+        <polygon points="60,115 120,78 120,115 180,78 180,115 240,78 240,115 310,78 310,200 60,200" fill="#131722" stroke="rgba(255,255,255,0.14)"/>
+        <!-- Industrial Grid Windows -->
+        <g fill="#080A0F" stroke="${accent}" stroke-opacity="0.35" stroke-width="1">
+          <rect x="82" y="128" width="44" height="48" rx="2"/>
+          <rect x="144" y="128" width="44" height="48" rx="2"/>
+          <rect x="206" y="128" width="44" height="48" rx="2"/>
+        </g>
+        <path d="M104 128V176M82 152H126M166 128V176M144 152H188M228 128V176M206 152H250" stroke="rgba(255,255,255,0.08)"/>
+      </svg>`;
+  }
+
+  // ==================== HELPERS ====================
+  function getStatusColor(status) {
+    if (status === 'open') return { dot: 'bg-emerald-400', text: 'text-emerald-300', bg: 'bg-emerald-500/15 border-emerald-500/30', pin: '#10B981' };
+    if (status === 'guard') return { dot: 'bg-amber-400', text: 'text-amber-300', bg: 'bg-amber-500/15 border-amber-500/30', pin: '#F59E0B' };
+    return { dot: 'bg-zinc-400', text: 'text-zinc-300', bg: 'bg-zinc-500/15 border-zinc-500/30', pin: '#71717A' };
+  }
+
+  function getVisibleMapPlaces() {
+    return places.filter(p => {
+      // Unpurchased VIPs are strictly hidden from map!
+      if (p.isVip && !state.unlockedVipIds.has(p.id)) return false;
+      if (state.selectedCategory !== 'Все' && p.category !== state.selectedCategory) return false;
+      if (state.searchQuery.trim() !== '') {
+        const q = state.searchQuery.toLowerCase();
+        return p.title.toLowerCase().includes(q) || p.category.toLowerCase().includes(q);
+      }
+      return true;
+    });
+  }
+
+  function showToast(message, icon = '✨') {
+    const pill = document.getElementById('toastPill');
+    document.getElementById('toastText').textContent = message;
+    document.getElementById('toastIcon').textContent = icon;
+    pill.classList.remove('-translate-y-8', 'opacity-0');
+    pill.classList.add('translate-y-0', 'opacity-100');
+
+    clearTimeout(window._toastTimer);
+    window._toastTimer = setTimeout(() => {
+      pill.classList.add('-translate-y-8', 'opacity-0');
+      pill.classList.remove('translate-y-0', 'opacity-100');
+    }, 2600);
+  }
+
+  // ==================== TAB NAVIGATION ====================
+  function switchTab(tabName) {
+    state.activeTab = tabName;
+
+    document.querySelectorAll('.tab-screen').forEach(el => el.classList.remove('active'));
+    document.getElementById(`screen-${tabName}`).classList.add('active');
+
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.classList.remove('bg-white/[0.12]', 'text-white', 'shadow-sm');
+      btn.classList.add('text-white/50');
+    });
+    const activeBtn = document.getElementById(`tab-btn-${tabName}`);
+    activeBtn.classList.add('bg-white/[0.12]', 'text-white', 'shadow-sm');
+    activeBtn.classList.remove('text-white/50');
+
+    if (tabName === 'map') {
+      if (worldMap) setTimeout(() => worldMap.invalidateSize(), 120);
+      renderMap();
+    }
+    if (tabName === 'list') renderListFeed();
+    if (tabName === 'vip') renderVipFeed();
+    if (tabName === 'submit') {
+      initPickerMap();
+      setTimeout(() => { if (pickerMap) pickerMap.invalidateSize(); }, 150);
+    }
+  }
+
+  // ==================== REAL WORLD LEAFLET MAP & BOTTOM SHEET SWIPE ====================
+  function initWorldMap() {
+    if (worldMap) return;
+
+    worldMap = L.map('worldMap', {
+      center: [55.785, 37.645],
+      zoom: 11,
+      zoomControl: false,
+      attributionControl: false,
+      worldCopyJump: true
+    });
+
+    // Free OpenStreetMap tiles (no API key required) styled via dark CSS filter
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(worldMap);
+
+    markersLayerGroup = L.layerGroup().addTo(worldMap);
+
+    // Current User Location Pulsing Blue Marker
+    const userIcon = L.divIcon({
+      className: 'custom-leaflet-marker',
+      iconSize: [32, 32],
+      iconAnchor: [16, 16],
+      html: `
+        <div class="relative w-8 h-8 flex items-center justify-center">
+          <div class="absolute inset-0 rounded-full bg-sky-500/25 pin-pulse"></div>
+          <div class="w-4 h-4 rounded-full bg-sky-400 border-2 border-white shadow-lg shadow-sky-400/70"></div>
+        </div>
+      `
+    });
+    userLocationMarker = L.marker(USER_COORDS, { icon: userIcon, interactive: false }).addTo(worldMap);
+
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        const coords = [pos.coords.latitude, pos.coords.longitude];
+        USER_COORDS[0] = coords[0];
+        USER_COORDS[1] = coords[1];
+        userLocationMarker.setLatLng(coords);
+        worldMap.setView(coords, 13);
+      }, () => {}, { timeout: 6000 });
+    }
+  }
+
+  function renderFilterChips() {
+    const container = document.getElementById('mapFilterChips');
+    container.innerHTML = CATEGORIES.map(cat => {
+      const active = state.selectedCategory === cat;
+      return `
+        <button
+          onclick="selectCategory('${cat}')"
+          class="spring-press shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-all ${
+            active
+              ? 'bg-white text-black font-semibold shadow-md'
+              : 'ios-glass text-white/75 hover:text-white'
+          }"
+        >
+          ${cat}
+        </button>
+      `;
+    }).join('');
+  }
+
+  function selectCategory(cat) {
+    state.selectedCategory = cat;
+    renderFilterChips();
+    renderMap();
+  }
+
+  function handleSearch(val) {
+    state.searchQuery = val;
+    document.getElementById('clearSearchBtn').classList.toggle('hidden', !val);
+    renderMap();
+  }
+
+  function clearSearch() {
+    state.searchQuery = '';
+    document.getElementById('mapSearchInput').value = '';
+    document.getElementById('clearSearchBtn').classList.add('hidden');
+    renderMap();
+  }
+
+  function recenterMap() {
+    if (!navigator.geolocation) {
+      if (worldMap) worldMap.flyTo(USER_COORDS, 12, { duration: 0.9 });
+      showToast('Геолокация недоступна в этом браузере', '⚠️');
+      return;
+    }
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const coords = [pos.coords.latitude, pos.coords.longitude];
+        USER_COORDS[0] = coords[0];
+        USER_COORDS[1] = coords[1];
+        if (userLocationMarker) userLocationMarker.setLatLng(coords);
+        if (worldMap) worldMap.flyTo(coords, 13, { duration: 0.9 });
+        showToast('Центрировано по вашей геопозиции', '🧭');
+      },
+      () => {
+        if (worldMap) worldMap.flyTo(USER_COORDS, 12, { duration: 0.9 });
+        showToast('Доступ к геопозиции не разрешён', '⚠️');
+      },
+      { enableHighAccuracy: true, timeout: 8000 }
+    );
+  }
+
+  function renderMap() {
+    initWorldMap();
+    renderFilterChips();
+    const visiblePlaces = getVisibleMapPlaces();
+
+    // Update hidden VIP pill counter
+    const lockedVipCount = places.filter(p => p.isVip && !state.unlockedVipIds.has(p.id)).length;
+    const vipPill = document.getElementById('hiddenVipCounter');
+    if (lockedVipCount > 0) {
+      vipPill.textContent = `${lockedVipCount} VIP-локации скрыты с карты • Открыть`;
+    } else {
+      vipPill.textContent = `Все VIP-локации открыты на вашей карте`;
+    }
+
+    // Rebuild Leaflet markers (Unpurchased VIPs are never added to map!)
+    markersLayerGroup.clearLayers();
+
+    visiblePlaces.forEach(place => {
+      const isSelected = state.selectedPinId === place.id;
+      const statusStyle = getStatusColor(place.status);
+      const isUnlockedVip = place.isVip && state.unlockedVipIds.has(place.id);
+
+      const pinBg = isUnlockedVip
+        ? 'bg-gradient-to-br from-amber-300 via-amber-500 to-orange-500 text-black border-amber-100 shadow-amber-500/50'
+        : 'bg-[#141720]/95 backdrop-blur-md text-white border-white/30';
+
+      const markerHtml = `
+        <div class="relative flex flex-col items-center -translate-x-1/2 -translate-y-full cursor-pointer select-none">
+          ${isSelected ? `<span class="absolute -inset-1.5 rounded-full ${isUnlockedVip ? 'bg-amber-400/35' : 'bg-emerald-400/25'} pin-pulse pointer-events-none"></span>` : ''}
+          <div class="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-full border shadow-xl transition-transform duration-300 ${
+            isSelected ? 'scale-110 ring-2 ring-white/85' : 'hover:scale-105'
+          } ${pinBg}">
+            <span class="w-2.5 h-2.5 rounded-full shrink-0 ${isUnlockedVip ? 'bg-black' : statusStyle.dot}"></span>
+            <span class="text-[11px] font-bold whitespace-nowrap max-w-[125px] truncate">
+              ${isUnlockedVip ? '👑 ' : ''}${place.title.split('«')[0].trim()}
+            </span>
+          </div>
+          <div class="w-0.5 h-2.5 ${isUnlockedVip ? 'bg-amber-400' : 'bg-white/50'}"></div>
+        </div>
+      `;
+
+      const leafletIcon = L.divIcon({
+        className: 'custom-leaflet-marker',
+        iconSize: [0, 0],
+        iconAnchor: [0, 0],
+        html: markerHtml
+      });
+
+      const marker = L.marker([place.lat, place.lng], { icon: leafletIcon });
+      marker.on('click', () => {
+        selectMapPin(place.id);
+      });
+      marker.addTo(markersLayerGroup);
+    });
+
+    renderBottomSheet(visiblePlaces);
+  }
+
+  function selectMapPin(id) {
+    state.selectedPinId = id;
+    const place = places.find(p => p.id === id);
+    if (place && worldMap) {
+      // Offset slightly north so pin sits cleanly above the bottom sheet
+      worldMap.flyTo([place.lat - 0.012, place.lng], Math.max(worldMap.getZoom(), 12), {
+        duration: 0.65
+      });
+    }
+    if (state.sheetSnap === 'collapsed') {
+      setSheetSnap('half');
+    } else {
+      renderMap();
+    }
+  }
+
+  // ==================== SWIPEABLE 3-STATE BOTTOM SHEET ====================
+  function getSheetSnapHeights() {
+    const mainEl = document.querySelector('main');
+    const availableH = mainEl ? mainEl.clientHeight - 94 : 620;
+    return {
+      collapsed: 64,
+      half: 215,
+      full: Math.max(380, availableH - 58)
+    };
+  }
+
+  function setSheetSnap(snapState) {
+    state.sheetSnap = snapState;
+    const sheet = document.getElementById('mapBottomSheet');
+    const heights = getSheetSnapHeights();
+    sheet.classList.add('snapping');
+    sheet.style.height = `${heights[snapState]}px`;
+
+    const vipPill = document.getElementById('vipFloatingPill');
+    if (vipPill) {
+      vipPill.style.opacity = snapState === 'full' ? '0' : '1';
+      vipPill.style.pointerEvents = snapState === 'full' ? 'none' : '';
+    }
+
+    renderBottomSheet(getVisibleMapPlaces());
+  }
+
+  function cycleSheetSnap(event) {
+    if (event) event.stopPropagation();
+    if (state.sheetSnap === 'collapsed') setSheetSnap('half');
+    else if (state.sheetSnap === 'half') setSheetSnap('full');
+    else setSheetSnap('half');
+  }
+
+  (function initSwipeableBottomSheet() {
+    const sheet = document.getElementById('mapBottomSheet');
+    const dragZone = document.getElementById('sheetDragZone');
+    const sheetContent = document.getElementById('sheetContent');
+
+    let isDragging = false;
+    let startY = 0;
+    let startHeight = 215;
+    let lastY = 0;
+    let lastTime = 0;
+    let velocityY = 0;
+
+    const beginDrag = (clientY) => {
+      isDragging = true;
+      startY = clientY;
+      lastY = clientY;
+      lastTime = performance.now();
+      velocityY = 0;
+      startHeight = sheet.getBoundingClientRect().height;
+      sheet.classList.remove('snapping');
+    };
+
+    const moveDrag = (clientY) => {
+      if (!isDragging) return;
+      const now = performance.now();
+      const dt = Math.max(1, now - lastTime);
+      velocityY = (clientY - lastY) / dt; // negative = swiping up
+      lastY = clientY;
+      lastTime = now;
+
+      const heights = getSheetSnapHeights();
+      const deltaY = startY - clientY; // positive when dragging upward
+      let nextH = startHeight + deltaY;
+
+      // Rubber-band resistance past min/max bounds
+      if (nextH < heights.collapsed) {
+        nextH = heights.collapsed - (heights.collapsed - nextH) * 0.28;
+      } else if (nextH > heights.full) {
+        nextH = heights.full + (nextH - heights.full) * 0.25;
+      }
+
+      sheet.style.height = `${nextH}px`;
+    };
+
+    const endDrag = () => {
+      if (!isDragging) return;
+      isDragging = false;
+      const currentH = sheet.getBoundingClientRect().height;
+      const heights = getSheetSnapHeights();
+
+      // Fast flick gesture detection
+      if (velocityY < -0.42) {
+        setSheetSnap(currentH > heights.half + 30 ? 'full' : 'half');
+        return;
+      }
+      if (velocityY > 0.42) {
+        setSheetSnap(currentH < heights.half - 20 ? 'collapsed' : 'half');
+        return;
+      }
+
+      // Snap to nearest detent
+      const candidates = [
+        { name: 'collapsed', dist: Math.abs(currentH - heights.collapsed) },
+        { name: 'half', dist: Math.abs(currentH - heights.half) },
+        { name: 'full', dist: Math.abs(currentH - heights.full) }
+      ];
+      candidates.sort((a, b) => a.dist - b.dist);
+      setSheetSnap(candidates[0].name);
+    };
+
+    // Touch events on drag handle
+    dragZone.addEventListener('touchstart', (e) => beginDrag(e.touches[0].clientY), { passive: true });
+    window.addEventListener('touchmove', (e) => {
+      if (isDragging) moveDrag(e.touches[0].clientY);
+    }, { passive: true });
+    window.addEventListener('touchend', endDrag);
+
+    // Mouse drag events on drag handle (for desktop testing)
+    dragZone.addEventListener('mousedown', (e) => {
+      if (e.target.tagName === 'BUTTON') return;
+      beginDrag(e.clientY);
+    });
+    window.addEventListener('mousemove', (e) => {
+      if (isDragging) moveDrag(e.clientY);
+    });
+    window.addEventListener('mouseup', endDrag);
+
+    // Also allow pulling down/up from sheetContent when scrolled to top
+    let contentTouchStartY = 0;
+    sheetContent.addEventListener('touchstart', (e) => {
+      contentTouchStartY = e.touches[0].clientY;
+    }, { passive: true });
+
+    sheetContent.addEventListener('touchmove', (e) => {
+      const dy = e.touches[0].clientY - contentTouchStartY;
+      if (!isDragging && sheetContent.scrollTop <= 0 && (dy > 8 || (dy < -8 && state.sheetSnap !== 'full'))) {
+        beginDrag(e.touches[0].clientY);
+      }
+    }, { passive: true });
+  })();
+
+  function renderBottomSheet(visiblePlaces) {
+    const sheetTitle = document.getElementById('sheetTitle');
+    const sheetExpandLabel = document.getElementById('sheetExpandLabel');
+    const sheetContent = document.getElementById('sheetContent');
+
+    const selectedPlace = visiblePlaces.find(p => p.id === state.selectedPinId) || visiblePlaces[0];
+
+    if (state.sheetSnap === 'collapsed') {
+      sheetTitle.textContent = `На карте: ${visiblePlaces.length} объектов`;
+      sheetExpandLabel.textContent = 'Свайп вверх ↑';
+      sheetContent.innerHTML = '';
+      return;
+    }
+
+    if (state.sheetSnap === 'full') {
+      sheetTitle.textContent = `Все объекты на карте (${visiblePlaces.length})`;
+      sheetExpandLabel.textContent = 'Свернуть ↓';
+      sheetContent.innerHTML = `
+        <div class="space-y-2.5 pt-1 pb-4">
+          ${visiblePlaces.length === 0 ? `<div class="py-8 text-center text-xs text-white/45">Пока нет объектов на карте. Добавьте первую точку во вкладке «Предложить».</div>` : ''}
+          ${visiblePlaces.map((p, idx) => {
+            const st = getStatusColor(p.status);
+            const isSelected = p.id === state.selectedPinId;
+            return `
+              <div
+                onclick="openObjectDetail('${p.id}')"
+                style="animation-delay: ${idx * 45}ms;"
+                class="sheet-stagger-item spring-press p-3 rounded-2xl ${
+                  p.isVip ? 'vip-glass' : isSelected ? 'bg-white/[0.1] border border-sky-400/40' : 'bg-white/[0.05] hover:bg-white/[0.08] border border-white/[0.08]'
+                } flex items-center gap-3 cursor-pointer"
+              >
+                <div class="w-16 h-16 rounded-xl overflow-hidden shrink-0 border border-white/10">
+                  ${renderSpotArtwork(p.illustration, p.accent, false)}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-1.5">
+                    ${p.isVip ? '<span class="text-xs">👑</span>' : ''}
+                    <h4 class="text-[13px] font-semibold text-white truncate">${p.title}</h4>
+                  </div>
+                  <div class="flex items-center gap-2 mt-1">
+                    <span class="px-2 py-0.5 rounded-md border text-[10px] font-medium ${st.bg} ${st.text}">${p.statusLabel}</span>
+                    <span class="text-[11px] text-white/45">${p.distanceKm} км</span>
+                  </div>
+                  <div class="flex items-center gap-3 mt-1.5 text-[11px] text-white/50">
+                    <span>👁 ${p.views}</span>
+                    <span>❤️ ${p.likes}</span>
+                    <span>💬 ${p.comments.length}</span>
+                  </div>
+                </div>
+                <span class="text-xs text-white/40">→</span>
+              </div>
+            `;
+          }).join('')}
+        </div>
+      `;
+      return;
+    }
+
+    // Half state: Selected Pin Card + Swipe Hint
+    sheetTitle.textContent = `Выбранный объект • ${visiblePlaces.length} рядом`;
+    sheetExpandLabel.textContent = 'Список ↑';
+
+    if (!selectedPlace) {
+      sheetContent.innerHTML = `<div class="py-6 text-center text-xs text-white/45">${places.length === 0 ? 'Карта пока пуста. Добавьте первую точку во вкладке «Предложить».' : 'Ничего не найдено по фильтру'}</div>`;
+      return;
+    }
+
+    const st = getStatusColor(selectedPlace.status);
+    sheetContent.innerHTML = `
+      <div onclick="openObjectDetail('${selectedPlace.id}')" class="sheet-stagger-item spring-press p-3 rounded-2xl ${selectedPlace.isVip ? 'vip-glass' : 'bg-white/[0.05] border border-white/10'} flex items-center gap-3.5 cursor-pointer">
+        <div class="w-20 h-20 rounded-xl overflow-hidden shrink-0 border border-white/15 relative">
+          ${renderSpotArtwork(selectedPlace.illustration, selectedPlace.accent, false)}
+          ${selectedPlace.isVip ? '<span class="absolute top-1 left-1 px-1.5 py-0.5 rounded bg-amber-400 text-black text-[9px] font-extrabold">VIP</span>' : ''}
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center justify-between gap-2">
+            <span class="text-[11px] font-medium text-white/50">${selectedPlace.category} • ${selectedPlace.distanceKm} км</span>
+            <span class="px-2 py-0.5 rounded-md border text-[10px] font-semibold ${st.bg} ${st.text}">${selectedPlace.statusLabel}</span>
+          </div>
+          <h3 class="text-[15px] font-bold text-white truncate mt-1">${selectedPlace.title}</h3>
+          <div class="flex items-center justify-between mt-2">
+            <div class="flex items-center gap-3 text-xs text-white/60">
+              <span>👁 ${selectedPlace.views}</span>
+              <span>❤️ ${selectedPlace.likes}</span>
+              <span>💬 ${selectedPlace.comments.length}</span>
+            </div>
+            <span class="text-xs font-semibold text-sky-400">Открыть →</span>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  // ==================== LIST TAB ====================
+  function setSort(mode) {
+    state.sortBy = mode;
+    document.querySelectorAll('.sort-btn').forEach(btn => {
+      btn.classList.remove('bg-white/15', 'text-white');
+      btn.classList.add('text-white/50');
+    });
+    const active = document.getElementById(`sort-${mode}`);
+    active.classList.add('bg-white/15', 'text-white');
+    active.classList.remove('text-white/50');
+    renderListFeed();
+  }
+
+  function renderListFeed() {
+    const container = document.getElementById('listFeedContainer');
+    let list = places.filter(p => !p.isVip || state.unlockedVipIds.has(p.id));
+
+    if (state.sortBy === 'distance') list.sort((a, b) => a.distanceKm - b.distanceKm);
+    if (state.sortBy === 'fresh') list.sort((a, b) => a.views - b.views);
+    if (state.sortBy === 'popular') list.sort((a, b) => b.likes - a.likes);
+
+    if (list.length === 0) {
+      container.innerHTML = `
+        <div class="flex flex-col items-center text-center pt-16 px-6">
+          <div class="text-3xl mb-3">🗺️</div>
+          <h3 class="text-sm font-semibold text-white">Пока нет объектов</h3>
+          <p class="text-xs text-white/45 mt-1.5 leading-relaxed">Будьте первым — добавьте точку во вкладке «Предложить».</p>
+          <button onclick="switchTab('submit')" class="spring-press mt-4 px-4 py-2 rounded-xl bg-white text-black text-xs font-semibold">Предложить точку</button>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = list.map((place, idx) => {
+      const st = getStatusColor(place.status);
+      const isLiked = state.likedIds.has(place.id);
+      return `
+        <article
+          onclick="openObjectDetail('${place.id}')"
+          style="animation-delay: ${idx * 55}ms;"
+          class="stagger-card spring-press rounded-[24px] overflow-hidden ${place.isVip ? 'vip-glass' : 'ios-glass'} cursor-pointer"
+        >
+          <div class="relative h-36 w-full overflow-hidden">
+            ${renderSpotArtwork(place.illustration, place.accent, false)}
+            <div class="absolute inset-0 bg-gradient-to-t from-[#0D0E13] via-transparent to-black/30"></div>
+
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="px-2.5 py-1 rounded-full backdrop-blur-md bg-black/55 border border-white/15 text-[11px] font-medium text-white">
+                ${place.category}
+              </span>
+              ${place.isVip ? '<span class="px-2 py-1 rounded-full bg-amber-400 text-black text-[10px] font-extrabold">👑 VIP ОТКРЫТО</span>' : ''}
+            </div>
+
+            <div class="absolute top-3 right-3 px-2.5 py-1 rounded-full backdrop-blur-md border text-[11px] font-semibold ${st.bg} ${st.text}">
+              ${place.statusLabel}
+            </div>
+
+            <div class="absolute bottom-2.5 left-3.5 right-3.5 flex items-end justify-between">
+              <h3 class="text-base font-bold text-white leading-tight">${place.title}</h3>
+              <span class="text-xs font-semibold text-white/80 shrink-0 ml-2">${place.distanceKm} км</span>
+            </div>
+          </div>
+
+          <div class="px-3.5 py-2.5 flex items-center justify-between text-xs text-white/60">
+            <div class="flex items-center gap-4">
+              <span class="flex items-center gap-1">👁 <strong class="text-white/90 font-semibold">${place.views}</strong></span>
+              <span class="flex items-center gap-1 ${isLiked ? 'text-rose-400' : ''}">
+                ${isLiked ? '❤️' : '🤍'} <strong class="text-white/90 font-semibold">${place.likes}</strong>
+              </span>
+              <span class="flex items-center gap-1">💬 <strong class="text-white/90 font-semibold">${place.comments.length}</strong></span>
+            </div>
+            <span class="text-[11px] text-white/40">${place.addedAgo}</span>
+          </div>
+        </article>
+      `;
+    }).join('');
+  }
+
+  // ==================== VIP TAB ====================
+  function renderVipFeed() {
+    const container = document.getElementById('vipFeedContainer');
+    const vipPlaces = places.filter(p => p.isVip);
+
+    if (vipPlaces.length === 0) {
+      container.innerHTML = `
+        <div class="flex flex-col items-center text-center pt-16 px-6">
+          <div class="text-3xl mb-3">👑</div>
+          <h3 class="text-sm font-semibold text-white">VIP-каталог пуст</h3>
+          <p class="text-xs text-white/45 mt-1.5 leading-relaxed">Отметьте «Предложить как VIP» при добавлении точки, и она появится здесь после одобрения.</p>
+          <button onclick="switchTab('submit')" class="spring-press mt-4 px-4 py-2 rounded-xl bg-amber-400 text-black text-xs font-semibold">Предложить VIP-точку</button>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = vipPlaces.map((vip, idx) => {
+      const unlocked = state.unlockedVipIds.has(vip.id);
+      return `
+        <article
+          style="animation-delay: ${idx * 80}ms;"
+          class="stagger-card rounded-[26px] overflow-hidden vip-glass relative"
+        >
+          <!-- Teaser / Unlocked Visual Header -->
+          <div class="relative h-40 w-full overflow-hidden vip-protected">
+            ${renderSpotArtwork(vip.illustration, vip.accent, !unlocked)}
+            <div class="absolute inset-0 bg-gradient-to-t from-[#12100E] via-black/30 to-black/40"></div>
+
+            ${unlocked ? `
+              <!-- Dynamic Anti-Leak Watermark Overlay -->
+              <div class="absolute inset-0 watermark-grid pointer-events-none flex flex-col justify-between p-3 opacity-45">
+                <div class="flex justify-between text-[10px] font-mono text-amber-200/80 -rotate-6">
+                  <span>${USER_PROFILE.username}</span>
+                  <span>ID ${USER_PROFILE.id}</span>
+                </div>
+                <div class="text-center text-[11px] font-mono text-white/70 -rotate-12 tracking-widest">
+                  ${USER_PROFILE.username} • ${USER_PROFILE.id}
+                </div>
+                <div class="flex justify-between text-[10px] font-mono text-amber-200/80 -rotate-6">
+                  <span>ID ${USER_PROFILE.id}</span>
+                  <span>PRIVATE ACCESS</span>
+                </div>
+              </div>
+            ` : `
+              <div class="absolute inset-0 flex flex-col items-center justify-center bg-black/35 backdrop-blur-[3px]">
+                <div class="w-11 h-11 rounded-2xl bg-amber-400/20 border border-amber-400/40 flex items-center justify-center text-xl shadow-lg">
+                  🔒
+                </div>
+                <span class="text-[11px] font-semibold text-amber-200 mt-1.5">Скрыто с общей карты</span>
+              </div>
+            `}
+
+            <div class="absolute top-3 left-3 flex items-center gap-1.5">
+              <span class="px-2.5 py-1 rounded-full bg-amber-400 text-black text-[10px] font-extrabold tracking-wide">
+                👑 VIP • ${vip.category}
+              </span>
+            </div>
+
+            <div class="absolute top-3 right-3 px-2.5 py-1 rounded-full bg-black/65 border border-white/10 text-[11px] text-white/80">
+              👁 ${vip.views} • ⭐ купили: ${vip.buyersCount}
+            </div>
+          </div>
+
+          <div class="p-4 space-y-3">
+            <div>
+              <h3 class="text-base font-bold text-white">${vip.title}</h3>
+              <p class="text-xs text-amber-300/85 mt-1 flex items-center gap-1.5">
+                <span>🧭</span>
+                <span>${unlocked ? `Координаты: ${vip.coords}` : vip.approxDirection}</span>
+              </p>
+            </div>
+
+            <p class="text-xs text-white/60 leading-relaxed">
+              ${unlocked
+                ? vip.description
+                : 'Безопасный тизер: локация проверена, вход не заварен. Точные координаты, маршрут и фото без размытия откроются сразу после разблокировки.'}
+            </p>
+
+            ${unlocked ? `
+              <div class="grid grid-cols-2 gap-2 pt-1">
+                <button onclick="openObjectDetail('${vip.id}')" class="spring-press py-2.5 rounded-xl bg-amber-400 text-black font-bold text-xs">
+                  Открыть карточку
+                </button>
+                <button onclick="locateVipOnMap('${vip.id}')" class="spring-press py-2.5 rounded-xl bg-white/10 text-white font-semibold text-xs border border-white/15">
+                  Показать на карте
+                </button>
+              </div>
+            ` : `
+              <button onclick="openVipPayModal('${vip.id}')" class="spring-press relative overflow-hidden w-full py-3 rounded-2xl bg-gradient-to-r from-amber-400 via-amber-500 to-orange-500 text-black font-bold text-[13px] shadow-lg shadow-amber-500/25">
+                <span class="relative z-10">Открыть доступ за ${vip.priceStars} ⭐</span>
+                <div class="absolute inset-0 bg-white/35 w-1/2 shimmer-bar"></div>
+              </button>
+            `}
+          </div>
+        </article>
+      `;
+    }).join('');
+  }
+
+  function locateVipOnMap(id) {
+    state.selectedPinId = id;
+    switchTab('map');
+    selectMapPin(id);
+  }
+
+  // ==================== TELEGRAM STARS PAYMENT FLOW ====================
+  function openVipPayModal(vipId) {
+    const vip = places.find(p => p.id === vipId);
+    if (!vip) return;
+    state.pendingVipPurchaseId = vipId;
+
+    document.getElementById('vipPayTitle').textContent = vip.title;
+    document.getElementById('confirmStarPayBtn').querySelector('span').textContent = `Оплатить ${vip.priceStars} ⭐`;
+
+    const modal = document.getElementById('vipPayModal');
+    const backdrop = document.getElementById('vipPayBackdrop');
+    const card = document.getElementById('vipPayCard');
+
+    modal.classList.remove('pointer-events-none');
+    requestAnimationFrame(() => {
+      backdrop.classList.remove('opacity-0');
+      card.classList.remove('scale-90', 'opacity-0');
+      card.classList.add('scale-100', 'opacity-100');
+    });
+  }
+
+  function closeVipPayModal() {
+    const modal = document.getElementById('vipPayModal');
+    const backdrop = document.getElementById('vipPayBackdrop');
+    const card = document.getElementById('vipPayCard');
+
+    backdrop.classList.add('opacity-0');
+    card.classList.add('scale-90', 'opacity-0');
+    card.classList.remove('scale-100', 'opacity-100');
+    setTimeout(() => modal.classList.add('pointer-events-none'), 300);
+  }
+
+  // Real Telegram Stars payments need a bot backend: your server calls the Bot API's
+  // `sendInvoice` with currency "XTR" for this vip.priceStars, and returns the resulting
+  // invoice link here. Without that backend configured, we fall back to a clearly-labelled
+  // local demo unlock so the rest of the app (map, feed, watermark) can still be tested.
+  async function createStarsInvoiceLink(vip) {
+    return null; // Wire this up to your bot backend's invoice endpoint, e.g.:
+    // const res = await fetch('/api/create-stars-invoice', { method: 'POST', body: JSON.stringify({ vipId: vip.id }) });
+    // const { invoiceLink } = await res.json();
+    // return invoiceLink;
+  }
+
+  function unlockVip(vip) {
+    state.unlockedVipIds.add(vip.id);
+    vip.buyersCount += 1;
+
+    const remainingLocked = places.filter(p => p.isVip && !state.unlockedVipIds.has(p.id)).length;
+    if (remainingLocked === 0) {
+      document.getElementById('vipBadgeDot').classList.add('hidden');
+    }
+
+    closeVipPayModal();
+    renderVipFeed();
+    renderMap();
+    showToast('VIP открыт! Точка добавлена на вашу карту', '👑');
+    haptic('success');
+
+    setTimeout(() => {
+      openObjectDetail(vip.id);
+    }, 420);
+  }
+
+  async function confirmVipPurchase() {
+    const vip = places.find(p => p.id === state.pendingVipPurchaseId);
+    if (!vip) return;
+
+    const invoiceLink = await createStarsInvoiceLink(vip);
+
+    if (tg && tg.openInvoice && invoiceLink) {
+      tg.openInvoice(invoiceLink, (status) => {
+        if (status === 'paid') {
+          unlockVip(vip);
+        } else if (status === 'failed') {
+          showToast('Платёж не прошёл', '⚠️');
+          haptic('error');
+        }
+        // 'cancelled' / 'pending' — do nothing, modal stays as-is.
+      });
+      return;
+    }
+
+    // Demo fallback (no backend invoice configured yet): spend from the demo balance locally.
+    if (USER_PROFILE.stars < vip.priceStars) {
+      showToast('Недостаточно Telegram Stars', '⚠️');
+      haptic('error');
+      return;
+    }
+    USER_PROFILE.stars -= vip.priceStars;
+    document.getElementById('starsBalance').textContent = USER_PROFILE.stars;
+    unlockVip(vip);
+  }
+
+  // ==================== OBJECT DETAIL MODAL ====================
+  function openObjectDetail(id) {
+    const place = places.find(p => p.id === id);
+    if (!place) return;
+
+    // Unique view counter increment (once per user session)
+    let viewIncremented = false;
+    if (!state.viewedIds.has(id)) {
+      state.viewedIds.add(id);
+      place.views += 1;
+      viewIncremented = true;
+    }
+
+    renderDetailBody(place, viewIncremented);
+
+    const modal = document.getElementById('detailModal');
+    const backdrop = document.getElementById('detailBackdrop');
+    const sheet = document.getElementById('detailSheet');
+
+    modal.classList.remove('pointer-events-none');
+    requestAnimationFrame(() => {
+      backdrop.classList.remove('opacity-0');
+      sheet.classList.remove('translate-y-full');
+    });
+    updateBackButton(true);
+
+    // Refresh background counters
+    if (state.activeTab === 'map') renderMap();
+    if (state.activeTab === 'list') renderListFeed();
+    if (state.activeTab === 'vip') renderVipFeed();
+  }
+
+  function closeDetailModal() {
+    const modal = document.getElementById('detailModal');
+    const backdrop = document.getElementById('detailBackdrop');
+    const sheet = document.getElementById('detailSheet');
+
+    backdrop.classList.add('opacity-0');
+    sheet.classList.add('translate-y-full');
+    updateBackButton(false);
+    setTimeout(() => modal.classList.add('pointer-events-none'), 420);
+  }
+
+  function renderDetailBody(place, viewIncremented = false) {
+    const st = getStatusColor(place.status);
+    const isLiked = state.likedIds.has(place.id);
+    const isVip = place.isVip;
+
+    document.getElementById('detailBody').innerHTML = `
+      <div class="${isVip ? 'vip-protected' : ''}">
+        <!-- Hero Artwork with optional Dynamic Watermark -->
+        <div class="relative h-56 w-full overflow-hidden">
+          ${renderSpotArtwork(place.illustration, place.accent, false)}
+          <div class="absolute inset-0 bg-gradient-to-t from-[#111217] via-[#111217]/30 to-black/40"></div>
+
+          ${isVip ? `
+            <div class="absolute inset-0 watermark-grid pointer-events-none flex flex-col justify-around p-4 opacity-50">
+              <div class="flex justify-between text-[11px] font-mono text-amber-200/80 -rotate-12">
+                <span>${USER_PROFILE.username}</span>
+                <span>ID ${USER_PROFILE.id}</span>
+              </div>
+              <div class="text-center text-xs font-mono text-white/75 -rotate-12 tracking-widest">
+                ${USER_PROFILE.username} • ${USER_PROFILE.id}
+              </div>
+              <div class="flex justify-between text-[11px] font-mono text-amber-200/80 -rotate-12">
+                <span>PROTECTED VIP</span>
+                <span>${USER_PROFILE.username}</span>
+              </div>
+            </div>
+          ` : ''}
+
+          <div class="absolute bottom-3 left-4 right-4">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="px-2.5 py-0.5 rounded-full backdrop-blur-md bg-black/60 border border-white/15 text-[11px] font-medium text-white">
+                ${place.category}
+              </span>
+              <span class="px-2.5 py-0.5 rounded-full backdrop-blur-md border text-[11px] font-semibold ${st.bg} ${st.text}">
+                ${place.statusLabel}
+              </span>
+            </div>
+            <h2 class="text-xl font-extrabold text-white tracking-tight">${place.title}</h2>
+          </div>
+        </div>
+
+        <div class="px-4 space-y-4 mt-2">
+          <!-- Metrics & Interactive Like Bar -->
+          <div class="flex items-center justify-between p-3 rounded-2xl ios-glass">
+            <div class="flex items-center gap-4">
+              <div class="flex items-center gap-1.5 text-xs">
+                <span class="text-base">👁</span>
+                <div>
+                  <div class="font-bold text-white flex items-center gap-1">
+                    <span>${place.views}</span>
+                    ${viewIncremented ? '<span class="text-[10px] text-emerald-400 font-semibold">+1</span>' : ''}
+                  </div>
+                  <div class="text-[10px] text-white/45">Уник. просмотров</div>
+                </div>
+              </div>
+
+              <div class="h-6 w-[1px] bg-white/10"></div>
+
+              <button onclick="toggleLike('${place.id}')" class="spring-press flex items-center gap-1.5 text-xs text-left">
+                <span id="detailHeartIcon" class="text-lg ${isLiked ? 'heart-pop' : ''}">${isLiked ? '❤️' : '🤍'}</span>
+                <div>
+                  <div class="font-bold text-white">${place.likes}</div>
+                  <div class="text-[10px] text-white/45">Нравится</div>
+                </div>
+              </button>
+            </div>
+
+            <div class="text-right">
+              <div class="text-xs font-semibold text-white/85">${place.author}</div>
+              <div class="text-[10px] text-white/40">${place.addedAgo}</div>
+            </div>
+          </div>
+
+          <!-- Anti-Forwarding Banner for VIP -->
+          ${isVip ? `
+            <div class="p-3 rounded-2xl bg-amber-400/10 border border-amber-400/25 flex items-center gap-2.5">
+              <span class="text-base">🛡️</span>
+              <div class="text-[11px] text-amber-200/90 leading-snug">
+                <strong>Защита от пересылки активна:</strong> копирование текста и кнопка «Поделиться» отключены. Водяной знак привязан к <strong>${USER_PROFILE.username}</strong>.
+              </div>
+            </div>
+          ` : ''}
+
+          <!-- Coordinates & Route Actions -->
+          <div class="p-3.5 rounded-2xl ios-glass space-y-2.5">
+            <div class="flex items-center justify-between">
+              <div>
+                <div class="text-[10px] uppercase tracking-wider text-white/45 font-semibold">Координаты объекта</div>
+                <div class="text-sm font-mono font-bold text-white mt-0.5">${place.coords}</div>
+              </div>
+              <span class="text-xs font-semibold text-sky-400">${place.distanceKm} км от вас</span>
+            </div>
+
+            <div class="grid ${isVip ? 'grid-cols-1' : 'grid-cols-2'} gap-2">
+              <button onclick="showToast('Маршрут передан в навигатор', '🧭')" class="spring-press py-2.5 rounded-xl bg-sky-500 text-white font-semibold text-xs shadow-lg shadow-sky-500/20">
+                🧭 Построить маршрут
+              </button>
+              ${!isVip ? `
+                <button onclick="copyShareLink('${place.title}', '${place.coords}')" class="spring-press py-2.5 rounded-xl bg-white/10 hover:bg-white/15 text-white font-semibold text-xs border border-white/10">
+                  📤 Поделиться
+                </button>
+              ` : ''}
+            </div>
+          </div>
+
+          <!-- Risk & Description -->
+          <div class="space-y-2">
+            <div class="px-3 py-2 rounded-xl bg-rose-500/10 border border-rose-500/20 text-[11px] text-rose-200/90">
+              ⚠️ <strong>Риск и доступ:</strong> ${place.risk}
+            </div>
+            <p class="text-[13px] text-white/80 leading-relaxed">
+              ${place.description}
+            </p>
+          </div>
+
+          <!-- Live Comments & Reports -->
+          <div class="pt-2 border-t border-white/10 space-y-3">
+            <div class="flex items-center justify-between">
+              <h4 class="text-sm font-bold text-white">Отчёты и комментарии (${place.comments.length})</h4>
+              <span class="text-[10px] text-white/40">Свежая обстановка</span>
+            </div>
+
+            <div class="space-y-2">
+              ${place.comments.length === 0
+                ? `<p class="text-xs text-white/40 py-2">Пока нет отчётов. Будьте первым, кто расскажет об обстановке!</p>`
+                : place.comments.map(c => `
+                  <div class="p-3 rounded-2xl bg-white/[0.04] border border-white/[0.07]">
+                    <div class="flex items-center justify-between text-[11px] mb-1">
+                      <span class="font-semibold text-sky-300">${c.user}</span>
+                      <span class="text-white/40">${c.time}</span>
+                    </div>
+                    <p class="text-xs text-white/80 leading-relaxed">${c.text}</p>
+                  </div>
+                `).join('')
+              }
+            </div>
+
+            <!-- Add Comment Form -->
+            <div class="flex items-center gap-2 pt-1">
+              <input
+                id="newCommentInput"
+                type="text"
+                placeholder="Написать отчёт (охрана, залаз)..."
+                onkeydown="if(event.key==='Enter') postComment('${place.id}')"
+                class="flex-1 rounded-xl bg-white/[0.07] border border-white/12 px-3.5 py-2.5 text-xs text-white placeholder-white/35 focus:outline-none focus:border-sky-400/60"
+              />
+              <button onclick="postComment('${place.id}')" class="spring-press px-3.5 py-2.5 rounded-xl bg-white text-black font-bold text-xs">
+                ↑
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function toggleLike(id) {
+    const place = places.find(p => p.id === id);
+    if (!place) return;
+
+    if (state.likedIds.has(id)) {
+      state.likedIds.delete(id);
+      place.likes -= 1;
+    } else {
+      state.likedIds.add(id);
+      place.likes += 1;
+    }
+
+    renderDetailBody(place, false);
+    if (state.activeTab === 'map') renderMap();
+    if (state.activeTab === 'list') renderListFeed();
+  }
+
+  function postComment(id) {
+    const input = document.getElementById('newCommentInput');
+    const text = input.value.trim();
+    if (!text) return;
+
+    const place = places.find(p => p.id === id);
+    if (!place) return;
+
+    place.comments.unshift({
+      user: USER_PROFILE.username,
+      time: 'Только что',
+      text
+    });
+
+    renderDetailBody(place, false);
+    showToast('Отчёт опубликован', '💬');
+  }
+
+  function copyShareLink(title, coords) {
+    const text = `${title} (${coords}) — Карта заброшек в Telegram`;
+
+    const fallbackCopy = () => {
+      const temp = document.createElement('textarea');
+      temp.value = text;
+      temp.style.position = 'fixed';
+      temp.style.opacity = '0';
+      document.body.appendChild(temp);
+      temp.select();
+      try {
+        document.execCommand('copy');
+        showToast('Координаты скопированы', '📋');
+      } catch (e) {
+        showToast('Не удалось скопировать', '⚠️');
+      }
+      document.body.removeChild(temp);
+    };
+
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(
+        () => showToast('Координаты скопированы', '📋'),
+        fallbackCopy
+      );
+    } else {
+      fallbackCopy();
+    }
+  }
+
+  // ==================== SUBMIT & MODERATION SIMULATION ====================
+  let pickedSpotPos = { lat: '55.7842', lng: '37.6710' };
+
+  // Shared by map clicks/drags AND the manual coordinate input below, so every way of
+  // setting a point stays in sync: the pin, the label, pickedSpotPos, and the text input.
+  function updatePickedCoords(latlng, opts = {}) {
+    const lat = latlng.lat.toFixed(4);
+    const lng = latlng.lng.toFixed(4);
+    pickedSpotPos = { lat, lng };
+    document.getElementById('pickedCoordsLabel').textContent = `${lat}, ${lng}`;
+    if (!opts.skipInputSync) {
+      const input = document.getElementById('manualCoordsInput');
+      if (input) input.value = `${lat}, ${lng}`;
+    }
+  }
+
+  function applyManualCoords() {
+    const input = document.getElementById('manualCoordsInput');
+    const raw = input.value.trim();
+    // Accepts "55.7842, 37.6710", "55.7842 37.6710", or "55.7842,37.6710".
+    const match = raw.match(/^(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)$/);
+
+    if (!match) {
+      showToast('Формат: широта, долгота (например 55.7842, 37.6710)', '⚠️');
+      haptic('error');
+      return;
+    }
+
+    const lat = parseFloat(match[1]);
+    const lng = parseFloat(match[2]);
+
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      showToast('Координаты вне допустимого диапазона', '⚠️');
+      haptic('error');
+      return;
+    }
+
+    if (!pickerMap || !pickerMarker) {
+      showToast('Карта ещё не загрузилась, попробуйте снова', '⚠️');
+      return;
+    }
+
+    const latlng = { lat, lng };
+    pickerMarker.setLatLng(latlng);
+    pickerMap.flyTo(latlng, Math.max(pickerMap.getZoom(), 13), { duration: 0.6 });
+    updatePickedCoords(latlng, { skipInputSync: true });
+    showToast('Пин поставлен по координатам', '📍');
+    haptic('light');
+  }
+
+  function initPickerMap() {
+    if (pickerMap) return;
+    pickerMap = L.map('pickerLeafletMap', {
+      center: [55.7842, 37.6710],
+      zoom: 12,
+      zoomControl: false,
+      attributionControl: false
+    });
+
+    L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(pickerMap);
+
+    const pinIcon = L.divIcon({
+      className: 'custom-leaflet-marker',
+      iconSize: [28, 28],
+      iconAnchor: [14, 28],
+      html: `<div class="w-7 h-7 rounded-full bg-emerald-500 border-2 border-white shadow-lg shadow-emerald-500/60 flex items-center justify-center text-xs">📍</div>`
+    });
+
+    pickerMarker = L.marker([55.7842, 37.6710], { icon: pinIcon, draggable: true }).addTo(pickerMap);
+
+    pickerMap.on('click', (e) => {
+      pickerMarker.setLatLng(e.latlng);
+      updatePickedCoords(e.latlng);
+    });
+
+    pickerMarker.on('dragend', () => {
+      updatePickedCoords(pickerMarker.getLatLng());
+    });
+
+    // Recentre on the user's real location if they allow it, instead of the fixed default.
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        const latlng = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+        pickerMap.setView(latlng, 13);
+        pickerMarker.setLatLng(latlng);
+        updatePickedCoords(latlng);
+      }, () => {}, { timeout: 5000 });
+    }
+  }
+
+  function toggleSubmitVip() {
+    state.submitIsVip = !state.submitIsVip;
+    const toggle = document.getElementById('subVipToggle');
+    const knob = document.getElementById('subVipKnob');
+
+    if (state.submitIsVip) {
+      toggle.classList.remove('bg-white/15');
+      toggle.classList.add('bg-amber-400');
+      knob.classList.add('translate-x-5');
+    } else {
+      toggle.classList.add('bg-white/15');
+      toggle.classList.remove('bg-amber-400');
+      knob.classList.remove('translate-x-5');
+    }
+  }
+
+  function submitNewSpot() {
+    const titleInput = document.getElementById('subTitle');
+    const title = titleInput.value.trim() || 'Заброшенный корпус НИИ «Восход»';
+    const category = document.getElementById('subCategory').value;
+    const status = document.getElementById('subStatus').value;
+    const desc = document.getElementById('subDesc').value.trim() || 'Свежая точка от сообщества. Внутри сохранились лаборатории и крыша с панорамой.';
+
+    const statusMap = {
+      open: 'Свободный вход',
+      guard: 'Есть охрана',
+      sealed: 'Заварено'
+    };
+
+    const illMap = {
+      'Промзона': 'factory',
+      'Бункер': 'bunker',
+      'Санаторий': 'manor',
+      'Недострой': 'hospital'
+    };
+
+    state.pendingModerationSpot = {
+      id: `user-spot-${Date.now()}`,
+      title,
+      category,
+      status,
+      statusLabel: state.submitIsVip ? 'Эксклюзив • Новая' : statusMap[status],
+      distanceKm: 2.1,
+      approxDirection: 'Восточное направление • ~6 км от центра',
+      views: 1,
+      buyersCount: 0,
+      likes: 1,
+      coords: `${pickedSpotPos.lat}, ${pickedSpotPos.lng}`,
+      lat: parseFloat(pickedSpotPos.lat),
+      lng: parseFloat(pickedSpotPos.lng),
+      isVip: state.submitIsVip,
+      priceStars: 50,
+      theme: 'from-emerald-950 via-slate-900 to-black',
+      accent: state.submitIsVip ? '#FBBF24' : '#34D399',
+      illustration: illMap[category] || 'factory',
+      addedAgo: 'Только что',
+      author: USER_PROFILE.username,
+      risk: 'Проверяется сообществом • Будьте внимательны',
+      description: desc,
+      comments: []
+    };
+
+    document.getElementById('modPreviewTitle').textContent = `${state.submitIsVip ? '👑 ' : ''}${title}`;
+    document.getElementById('modPreviewMeta').textContent = `${category} • ${pickedSpotPos.lat}, ${pickedSpotPos.lng} • ${state.submitIsVip ? 'VIP (50 ⭐)' : 'Публичная карта'}`;
+    document.getElementById('moderationStatusCard').classList.remove('hidden');
+
+    titleInput.value = '';
+    document.getElementById('subDesc').value = '';
+    showToast('Заявка отправлена на модерацию', '📨');
+  }
+
+  function approveSubmittedSpot() {
+    if (!state.pendingModerationSpot) return;
+    const newSpot = state.pendingModerationSpot;
+    places.unshift(newSpot);
+    state.pendingModerationSpot = null;
+    document.getElementById('moderationStatusCard').classList.add('hidden');
+
+    if (newSpot.isVip) {
+      document.getElementById('vipBadgeDot').classList.remove('hidden');
+      showToast('Одобрено как VIP! Появилось во вкладке VIP', '👑');
+      switchTab('vip');
+    } else {
+      state.selectedPinId = newSpot.id;
+      showToast('Опубликовано на общей карте!', '✅');
+      switchTab('map');
+      selectMapPin(newSpot.id);
+    }
+  }
+
+  // ==================== INITIALIZE APP ====================
+  window.addEventListener('DOMContentLoaded', () => {
+    initTelegram();
+    renderMap();
+    renderListFeed();
+    renderVipFeed();
+  });
+</script>
+</body>
+</html>
